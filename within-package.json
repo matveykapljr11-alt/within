@@ -1,0 +1,11 @@
+{
+  "name": "within-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend for the Within Telegram Mini App — AI companion Лея (Grok / xAI) + Stars subscription",
+  "main": "within-bot.js",
+  "scripts": {
+    "start": "node within-bot.js"
+  },
+  "engines": { "node": ">=18" }
+}

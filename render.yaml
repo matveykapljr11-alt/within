@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: within
+    runtime: node
+    plan: free
+    buildCommand: ""
+    startCommand: node within-bot.js
+    envVars:
+      - key: XAI_API_KEY        # ключ Grok (xAI) — вставишь в Render вручную
+        sync: false
+      - key: BOT_TOKEN          # токен бота из @BotFather
+        sync: false
+      - key: WEBHOOK_SECRET     # Render сгенерирует сам
+        generateValue: true
+      - key: WITHIN_MODEL
+        value: grok-3
