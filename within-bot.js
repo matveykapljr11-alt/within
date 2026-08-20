@@ -274,6 +274,8 @@ function serveStatic(res, rel) {
     res.end(buf);
   });
 }
+// имя файла приложения: index.html (если есть), иначе within.html
+function appFile() { return fs.existsSync(path.join(__dirname, "index.html")) ? "index.html" : "within.html"; }
 
 /* ─────────────────────── чат ─────────────────────── */
 async function handleChat(res, data) {
@@ -438,7 +440,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 404, { error: "не найдено" });
     }
 
-    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/within.html")) return serveStatic(res, "within.html");
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/within.html" || url.pathname === "/index.html")) return serveStatic(res, appFile());
     send(res, 404, { error: "не найдено" });
   } catch (e) {
     console.error(e);
