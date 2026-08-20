@@ -57,16 +57,24 @@ const HAVE_KEY = !!XAI_KEY;
 
 // Вызов Grok (xAI). OpenAI-совместимый chat/completions.
 async function grokChat(model, system, messages) {
-  const r = await fetch(XAI_BASE.replace(/\/$/, "") + "/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + XAI_KEY },
-    body: JSON.stringify({
-      model,
-      max_tokens: 600,
-      temperature: 0.7,
-      messages: [{ role: "system", content: system }, ...messages],
-    }),
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);   // 45с потолок — чтобы запрос не висел вечно
+  let r;
+  try {
+    r = await fetch(XAI_BASE.replace(/\/$/, "") + "/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + XAI_KEY },
+      body: JSON.stringify({
+        model,
+        max_tokens: 600,
+        temperature: 0.7,
+        messages: [{ role: "system", content: system }, ...messages],
+      }),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    throw new Error(e && e.name === "AbortError" ? "xAI timeout (>45с)" : "xAI network: " + (e && e.message));
+  } finally { clearTimeout(timer); }
   if (!r.ok) throw new Error("xAI " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
   const j = await r.json();
   return (((j.choices || [])[0] || {}).message || {}).content?.trim() || "";
@@ -165,18 +173,18 @@ function ent(u) { touchDay(u); const plus = isPlus(u); return { plus, until: plu
 /* ─────────────────────── подпись initData ─────────────────────── */
 function checkInitData(initData) {
   if (!TOKEN) return { id: "dev", first_name: "Dev", dev: true };   // DEV: без токена не проверяем
-  if (typeof initData !== "string" || !initData) return null;
+  if (typeof initData !== "string" || !initData) { console.warn("initData отклонён: пусто (открыто вне Telegram или initData не пришёл)"); return null; }
   const p = new URLSearchParams(initData);
-  const hash = p.get("hash"); if (!hash) return null;
+  const hash = p.get("hash"); if (!hash) { console.warn("initData отклонён: нет hash"); return null; }
   p.delete("hash");
   const dcs = [...p.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([k, v]) => `${k}=${v}`).join("\n");
   const secret = crypto.createHmac("sha256", "WebAppData").update(TOKEN).digest();
   const mine = crypto.createHmac("sha256", secret).update(dcs).digest("hex");
   const a = Buffer.from(mine, "hex"), b = Buffer.from(hash, "hex");
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) { console.warn("initData отклонён: подпись не совпала (токен бота в Render ≠ бот, открывший mini app?)"); return null; }
   const age = Math.floor(Date.now() / 1000) - Number(p.get("auth_date") || 0);
-  if (!(age >= 0 && age < MAX_AGE)) return null;
-  try { return JSON.parse(p.get("user") || "null"); } catch (e) { return null; }
+  if (!(age >= 0 && age < MAX_AGE)) { console.warn("initData отклонён: устарел, age=" + age + "с"); return null; }
+  try { return JSON.parse(p.get("user") || "null"); } catch (e) { console.warn("initData отклонён: битый user json"); return null; }
 }
 
 /* ─────────────────────── Telegram Bot API ─────────────────────── */
@@ -359,11 +367,14 @@ async function handleChat(res, data) {
   if (!history.length || history[0].role !== "user") history.unshift({ role: "user", content: (last && last.content) || "Здравствуйте" });
 
   DB.stats.n++; save();                          // учитываем реальный вызов модели
+  const t0 = Date.now();
+  console.log("chat: запрос к Grok, модель=" + (plus ? MODEL : MODEL_FREE) + ", user=" + who.id);
   try {
     const text = await grokChat(plus ? MODEL : MODEL_FREE, systemPrompt(data.style, data.goals, data.name), history);
+    console.log("chat: Grok ответил за " + (Date.now() - t0) + "мс, длина=" + ((text || "").length));
     return send(res, 200, { reply: text || "Я рядом. Расскажите, что сейчас происходит?", ent: ent(u) });
   } catch (err) {
-    console.error("chat error:", err && err.message ? err.message : err);
+    console.error("chat error (за " + (Date.now() - t0) + "мс):", err && err.message ? err.message : err);
     return send(res, 502, { error: "upstream", reply: "", ent: ent(u) });
   }
 }
