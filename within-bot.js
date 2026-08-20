@@ -44,7 +44,8 @@ const MODEL_FREE = process.env.WITHIN_MODEL_FREE || MODEL;        // для бе
 const PORT = +(process.env.PORT || 8790);
 const DB_FILE = process.env.DB_FILE || "./within-db.json";
 const ORIGIN = process.env.ALLOW_ORIGIN || "*";
-const WEBAPP_URL = process.env.WEBAPP_URL || "";      // если задан — в напоминание добавляется кнопка «Открыть Within»
+const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || "").replace(/\/$/, "");  // публичный адрес сервиса (Render задаёт RENDER_EXTERNAL_URL сам)
+const WEBAPP_URL = process.env.WEBAPP_URL || PUBLIC_URL;   // для кнопки «Открыть Within» в напоминаниях
 const BACKUP_DIR = process.env.BACKUP_DIR || "./within-backups";  // куда складывать ежедневные резервные копии базы
 const BACKUP_KEEP = +(process.env.BACKUP_KEEP || 7);  // сколько дневных копий хранить
 const MAX_AGE = 60 * 60 * 24;            // initData старше суток не принимаем
@@ -277,6 +278,29 @@ function serveStatic(res, rel) {
 // имя файла приложения: index.html (если есть), иначе within.html
 function appFile() { return fs.existsSync(path.join(__dirname, "index.html")) ? "index.html" : "within.html"; }
 
+// публичный origin текущего запроса (Render проксирует https; берём из заголовков)
+function reqOrigin(req) {
+  const proto = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim();
+  const host = req.headers["host"];
+  return host ? proto + "://" + host : "";
+}
+
+// Отдаёт приложение и, если CONFIG.API_URL пуст, подставляет адрес этого же сервера —
+// чтобы страница, отданная бэкендом, сразу общалась с живым бэкендом (без ручной правки).
+function serveApp(req, res) {
+  const file = path.join(__dirname, appFile());
+  fs.readFile(file, "utf8", (e, html) => {
+    if (e) { res.writeHead(404); return res.end("not found"); }
+    const origin = PUBLIC_URL || reqOrigin(req);
+    if (origin) {
+      html = html.replace('const CONFIG = { API_URL: "" };',
+                          'const CONFIG = { API_URL: "' + origin + '" };');
+    }
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+  });
+}
+
 /* ─────────────────────── чат ─────────────────────── */
 async function handleChat(res, data) {
   const who = checkInitData(data.initData);
@@ -440,7 +464,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 404, { error: "не найдено" });
     }
 
-    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/within.html" || url.pathname === "/index.html")) return serveStatic(res, appFile());
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/within.html" || url.pathname === "/index.html")) return serveApp(req, res);
     send(res, 404, { error: "не найдено" });
   } catch (e) {
     console.error(e);
@@ -448,8 +472,23 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Саморегистрация вебхука: если знаем публичный адрес (Render даёт RENDER_EXTERNAL_URL),
+// на старте вызываем setWebhook сами — платежи заводятся без ручного curl.
+async function ensureWebhook() {
+  if (!TOKEN || !HOOK || !PUBLIC_URL) return;
+  const url = PUBLIC_URL + "/webhook/" + HOOK;
+  try {
+    await api("setWebhook", { url, secret_token: HOOK, allowed_updates: ["pre_checkout_query", "message"] });
+    console.log("Вебхук зарегистрирован автоматически: " + url);
+  } catch (e) {
+    console.error("setWebhook не удался (зарегистрируйте вручную): " + e.message);
+  }
+}
+
 server.listen(PORT, () => {
   console.log(`Within backend на :${PORT}  model=${MODEL}/${MODEL_FREE}  key=${HAVE_KEY ? "yes" : "no"}  verify=${TOKEN ? "on" : "DEV(off)"}  pay=${TOKEN && HOOK ? "on" : "off"}`);
   if (TOKEN && HOOK) console.log(`Вебхук: POST /webhook/${HOOK}`);
+  if (PUBLIC_URL) console.log(`Публичный адрес: ${PUBLIC_URL}`);
+  ensureWebhook();
 });
 module.exports = { checkInitData, grant, ent, reminderHours, dueHour, localHM, systemPrompt, cleanName, CATALOG, DB };
