@@ -807,7 +807,7 @@ function fetchReply(st){
   return fetch(CONFIG.API_URL.replace(/\/$/,'')+'/api/chat',{
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ initData: tg?tg.initData:'', style:S.style, goals:S.goals, name:USERNAME, messages:history })
-  }).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); });
+  }).then(async r=>{ if(!r.ok){ let b=''; try{ b=await r.text(); }catch(e){} throw new Error('код '+r.status+(b?' · '+b.slice(0,140):'')); } return r.json(); });
 }
 function chatSend(text){
   const st=V.chat; text=(text||'').trim(); if(!text) return;
@@ -829,7 +829,7 @@ function chatSend(text){
       applyEnt(r.ent); patchFreeBanner();
       if(r.limit){ st.thinking=false; renderChat(); openPaywall('messages'); return; }
       deliverReply(r.reply || 'Я рядом. Расскажите, что сейчас происходит?', r.crisis);
-    }).catch(()=>{ st.thinking=false; renderChat(); showOfflineInline(); });
+    }).catch(err=>{ st.thinking=false; renderChat(); showOfflineInline(err&&err.message); });
     return;
   }
   // standalone scripted fallback
@@ -839,7 +839,7 @@ function chatSend(text){
   const delay = rm()?300:1600;
   st.tTimer=setTimeout(()=>deliverReply(reply), delay);
 }
-function showOfflineInline(){
+function showOfflineInline(detail){
   const box=$('#chatScroll'); if(!box)return;
   box.insertAdjacentHTML('beforeend',`<div style="align-self:flex-end;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink4)">${svg('M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z',{stroke:'#A2A29F',sw:2,size:14})}не отправлено</div>
   <div style="margin-top:8px;background:var(--beige);border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:12px;align-items:flex-start">
@@ -847,6 +847,7 @@ function showOfflineInline(){
     <div style="font-size:17px;font-weight:600">Не удалось подключиться</div>
     <div class="sub" style="color:var(--ink2);font-size:15px">Проверьте интернет и попробуйте ещё раз. Ваше сообщение сохранено.</div>
     <button class="pill pill-on" data-a="retry-send" style="min-height:44px;padding:0 20px;font-weight:600">Повторить</button>
+    ${detail?`<div style="font-size:12px;color:var(--ink4);margin-top:2px;word-break:break-word">${esc(detail)}</div>`:''}
   </div>`);
   box.scrollTop=box.scrollHeight;
 }
