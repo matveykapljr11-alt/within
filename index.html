@@ -823,7 +823,8 @@ function chatSend(text){
   if(V.netOffline || (CONFIG.API_URL && !navigator.onLine)){ renderChat(); showOfflineInline(); return; }
   st.thinking=true; renderChat(); haptic('light');
 
-  if(CONFIG.API_URL){
+  // Живой бэкенд возможен только внутри Telegram (нужен initData). Вне Telegram — демо-ответы.
+  if(CONFIG.API_URL && tg && tg.initData){
     fetchReply(st).then(r=>{
       applyEnt(r.ent); patchFreeBanner();
       if(r.limit){ st.thinking=false; renderChat(); openPaywall('messages'); return; }
